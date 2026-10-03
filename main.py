@@ -437,78 +437,8 @@ def menu_settings():
             break
 
 
-def menu_login():
-    print("\n--- [3] 🌐 Вход в аккаунт (консоль) ---")
-    if not os.path.exists("accounts.json"):
-        print("База accounts.json пуста. Сначала зарегистрируйте аккаунт.")
-        return
-
-    try:
-        with open("accounts.json", "r", encoding="utf-8") as f:
-            accounts = json.load(f)
-    except Exception:
-        print("Ошибка чтения accounts.json.")
-        return
-
-    if not accounts:
-        print("Нет сохраненных аккаунтов.")
-        return
-
-    print("Сохраненные аккаунты:")
-    recent = accounts[-10:]
-    for idx, acc in enumerate(recent, 1):
-        print(f"[{idx}] {acc.get('email')} (Баланс: ${acc.get('credits_usd', 0):.2f}, Ключ: {acc.get('api_key', '')[:12]}...)")
-
-    choice = input(f"Выберите аккаунт (1-{len(recent)}) [последний]: ").strip()
-    idx = int(choice) - 1 if choice.isdigit() and 1 <= int(choice) <= len(recent) else -1
-    selected = recent[idx]
-
-    token = selected.get("access_token")
-    refresh_token = selected.get("refresh_token")
-    email = selected.get("email")
-    pwd = selected.get("mail_password")
-
-    print("\nСпособ входа:")
-    print("[1] Мгновенный вход в браузер (по сессионному токену)")
-    print("[2] Получить свежий 6-значный OTP код на почту")
-    method = input("Выберите вариант [1]: ").strip()
-
-    if method == "2" and pwd:
-        print(f"\nЗапрашиваем код на {email}...")
-        reg = ApodexAutoReg()
-        if reg.send_verification_code(email):
-            mail = MailTmClient()
-            try:
-                mail.login_account(email, pwd)
-                code = mail.wait_for_otp(timeout_sec=40)
-                print("\n" + "=" * 50)
-                print(f"📩 ВАШ 6-ЗНАЧНЫЙ OTP-КОД ДЛЯ ВХОДА: {code}")
-                print("=" * 50)
-                webbrowser.open("https://platform.apodex.ai/login")
-            except Exception as e:
-                print(f"Ошибка получения кода: {e}")
-        else:
-            print("Не удалось отправить код.")
-    else:
-        js_code = (
-            f"localStorage.setItem('apodex_pp_access_token', '{token}'); "
-            f"localStorage.setItem('apodex_pp_refresh_token', '{refresh_token}'); "
-            f"localStorage.setItem('apodex_pp_access_expires_at', '{int(time.time() + 3600)*1000}'); "
-            f"document.cookie = 'apodex_signed_in=1; path=/; max-age=2592000'; "
-            f"location.href = '/console/api-keys';"
-        )
-        print("\n" + "=" * 70)
-        print("ВХОД В КОНСОЛЬ:")
-        print("1. Браузер открывается на https://platform.apodex.ai/login")
-        print("2. Нажмите F12 (вкладка Console), вставьте строку ниже и нажмите Enter:")
-        print("-" * 70)
-        print(js_code)
-        print("=" * 70)
-        webbrowser.open("https://platform.apodex.ai/login")
-
-
 def menu_clear_database():
-    print("\n--- [4] 🗑 Очистить базу аккаунтов ---")
+    print("\n--- [3] 🗑 Очистить базу аккаунтов ---")
     confirm = input("Удалить keys.txt, accounts.txt и accounts.json? (yes/no): ").strip().lower()
     if confirm in ("yes", "y", "да"):
         for fname in ["keys.txt", "accounts.txt", "accounts.json"]:
@@ -529,21 +459,18 @@ def main_menu():
 💻 ПУНКТЫ МЕНЮ:
 [1] 🚀 Запустить авторегер
 [2] ⚙️ Настройки
-[3] 🌐 Вход в аккаунт (консоль)
-[4] 🗑 Очистить базу аккаунтов
+[3] 🗑 Очистить базу аккаунтов
 [0] ❌ Выход
 ============================================================
 """
     while True:
         print(banner)
-        choice = input("Выберите пункт меню [0-4]: ").strip()
+        choice = input("Выберите пункт меню [0-3]: ").strip()
         if choice == "1":
             menu_autoreg()
         elif choice == "2":
             menu_settings()
         elif choice == "3":
-            menu_login()
-        elif choice == "4":
             menu_clear_database()
         elif choice == "0":
             print("\nВыход из программы. До скорых встреч!")
