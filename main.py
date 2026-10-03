@@ -36,6 +36,7 @@ AUTH_BASE = "https://auth.apodex.ai"
 PLATFORM_BASE = "https://platform.apodex.ai"
 API_BASE = "https://api.apodex.ai/v1"
 CLIENT_ID = "apodex-platform-web"
+CONFIG_FILE = "config.json"
 
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
@@ -44,6 +45,30 @@ DEFAULT_HEADERS = {
     "Origin": "https://platform.apodex.ai",
     "Referer": "https://platform.apodex.ai/"
 }
+
+DEFAULT_CONFIG = {
+    "count": 1,
+    "use_proxy": True,
+    "proxy_file": "proxies.txt",
+    "delay_min": 3,
+    "delay_max": 6
+}
+
+
+def load_config() -> Dict[str, Any]:
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                return {**DEFAULT_CONFIG, **cfg}
+        except Exception:
+            pass
+    return DEFAULT_CONFIG.copy()
+
+
+def save_config(cfg: Dict[str, Any]):
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
 
 
 def random_string(length: int = 10) -> str:
@@ -240,15 +265,12 @@ class ApodexAutoReg:
 
 
 def save_account_data(res: Dict[str, Any]):
-    # 1. keys.txt
     with open("keys.txt", "a", encoding="utf-8") as f:
         f.write(f"{res['api_key']}\n")
 
-    # 2. accounts.txt
     with open("accounts.txt", "a", encoding="utf-8") as f:
         f.write(f"{res['email']}:{res['api_key']}:${res['credits_usd']:.2f}\n")
 
-    # 3. accounts.json
     all_accs = []
     if os.path.exists("accounts.json"):
         try:
@@ -262,7 +284,7 @@ def save_account_data(res: Dict[str, Any]):
 
 
 def run_registration(proxy: Optional[Dict[str, str]] = None, verbose: bool = True) -> Optional[Dict[str, Any]]:
-    proxy_str = proxy["http"] if proxy else "Прямое подключение (без прокси)"
+    proxy_str = proxy["http"] if proxy else "Прямое подключение"
     if verbose:
         logger.info(f"Запуск регистрации [Прокси: {proxy_str}]")
 
@@ -271,34 +293,34 @@ def run_registration(proxy: Optional[Dict[str, str]] = None, verbose: bool = Tru
         mail = MailTmClient(proxies=proxy)
         email = mail.create_account()
         if verbose:
-            logger.info(f"[1/4] Сгенерирован TempMail: {email}")
+            logger.info(f"[1/4] TempMail создан: {email}")
     except Exception as e:
-        logger.error(f"Ошибка создания почты: {e}")
+        logger.error(f"Ошибка создания ящика: {e}")
         return None
 
     # 2. Запрос кода
     autoreg = ApodexAutoReg(proxy=proxy)
     if verbose:
-        logger.info("[2/4] Запрос проверочного OTP кода на Apodex...")
+        logger.info("[2/4] Запрос OTP кода на auth.apodex.ai...")
     if not autoreg.send_verification_code(email):
         return None
 
     # 3. Получение OTP
     try:
         if verbose:
-            logger.info("Ожидание входящего письма с кодом (до 60 сек)...")
+            logger.info("Ожидание письма с кодом (до 60 сек)...")
         code = mail.wait_for_otp(timeout_sec=60)
         if verbose:
-            logger.info(f"[3/4] Получен OTP-код: {code}")
+            logger.info(f"[3/4] Получен код: {code}")
     except Exception as e:
-        logger.error(f"Ошибка получения OTP-кода: {e}")
+        logger.error(f"Ошибка получения кода: {e}")
         return None
 
     # 4. Верификация сессии
     try:
         autoreg.verify_login(email, code)
         if verbose:
-            logger.info("Успешная аутентификация в Passport API.")
+            logger.info("Успешная верификация сессии.")
     except Exception as e:
         logger.error(f"Ошибка верификации: {e}")
         return None
@@ -314,11 +336,11 @@ def run_registration(proxy: Optional[Dict[str, str]] = None, verbose: bool = Tru
         key_data = autoreg.create_api_key(name=f"Key_{random_string(6)}")
         api_key = key_data.get("key")
         if verbose:
-            logger.info(f"[4/4] Создан боевой API-ключ: {api_key}")
+            logger.info(f"[4/4] Создан API-ключ: {api_key}")
 
         is_valid = autoreg.test_api_key(api_key)
         if verbose:
-            logger.info(f"Валидация ключа (/v1/models): {'200 OK (Активен)' if is_valid else 'Ошибка'}")
+            logger.info(f"Проверка ключа (/v1/models): {'200 OK (Активен)' if is_valid else 'Ошибка'}")
 
         result = {
             "email": email,
@@ -339,154 +361,155 @@ def run_registration(proxy: Optional[Dict[str, str]] = None, verbose: bool = Tru
         return None
 
 
-# --- МЕНЮ ДЕЙСТВИЙ ---
+# --- ПУНКТЫ МЕНЮ ---
 
 def menu_autoreg():
-    print("\n--- [1] 🚀 Запуск авторегера ---")
-    try:
-        count_str = input("Количество аккаунтов для регистрации [по умолчанию 1]: ").strip()
-        count = int(count_str) if count_str else 1
-    except ValueError:
-        count = 1
+    cfg = load_config()
+    print("\n--- [1] 🚀 Запустить авторегер ---")
+    count_str = input(f"Количество аккаунтов [{cfg['count']}]: ").strip()
+    count = int(count_str) if count_str.isdigit() and int(count_str) > 0 else cfg['count']
 
-    proxies = load_proxies("proxies.txt")
-    use_proxy = False
-    if proxies:
-        ans = input(f"Найдено {len(proxies)} прокси в proxies.txt. Использовать их? (y/n) [y]: ").strip().lower()
-        use_proxy = ans != "n"
+    proxies = load_proxies(cfg["proxy_file"]) if cfg["use_proxy"] else []
+    if cfg["use_proxy"] and proxies:
+        print(f"Используем {len(proxies)} прокси из {cfg['proxy_file']}.")
     else:
-        print("Файл proxies.txt пуст или отсутствует. Работаем напрямую без прокси.")
+        print("Режим: прямое подключение (без прокси).")
 
     success = 0
     for i in range(1, count + 1):
-        print(f"\n>>> Регистрация {i}/{count}...")
-        p = random.choice(proxies) if (use_proxy and proxies) else None
+        print(f"\n>>> Регистрация [{i}/{count}]...")
+        p = random.choice(proxies) if proxies else None
         res = run_registration(proxy=p, verbose=True)
         if res:
             success += 1
-            print(f"✔ Готово: {res['email']} | Ключ: {res['api_key']} | Баланс: ${res['credits_usd']:.2f}")
+            print(f"✔ Успешно: {res['email']} | Баланс: ${res['credits_usd']:.2f}")
         else:
-            print(f"✖ Ошибка на попытке {i}")
+            print(f"✖ Сбой при регистрации аккаунта {i}")
 
         if i < count:
-            delay = random.randint(3, 6)
-            print(f"Пауза {delay} сек перед следующим аккаунтом...")
+            delay = random.randint(cfg["delay_min"], cfg["delay_max"])
+            print(f"Пауза {delay} сек перед следующим шагом...")
             time.sleep(delay)
 
-    print(f"\nИтог: успешно создано {success}/{count} аккаунтов. Сохранено в keys.txt, accounts.txt, accounts.json.")
+    print("\n" + "=" * 60)
+    print(f"Завершено: успешно создано {success}/{count} аккаунтов.")
+    print("Результаты сохранены в keys.txt, accounts.txt, accounts.json.")
+    print("=" * 60)
 
 
-def menu_quick_test():
-    print("\n--- [2] 🧪 Быстрый тест (создать 1 аккаунт с логами) ---")
-    proxies = load_proxies("proxies.txt")
-    p = random.choice(proxies) if proxies else None
-    res = run_registration(proxy=p, verbose=True)
-    if res:
-        print("\n" + "=" * 60)
-        print("🎉 ТЕСТ УСПЕШНО ЗАВЕРШЕН!")
-        print(f"Почта:   {res['email']}")
-        print(f"API Key: {res['api_key']}")
-        print(f"Баланс:  ${res['credits_usd']:.2f} USD")
-        print("Ключ сохранен в keys.txt и accounts.txt")
-        print("=" * 60)
-    else:
-        print("\n❌ Тест завершился с ошибкой.")
+def menu_settings():
+    cfg = load_config()
+    while True:
+        proxies = load_proxies(cfg["proxy_file"])
+        print("\n--- [2] ⚙️ Настройки ---")
+        print(f"[1] Количество аккаунтов по умолчанию: {cfg['count']}")
+        print(f"[2] Использовать прокси:               {'Включено' if cfg['use_proxy'] else 'Выключено'} (Найдено: {len(proxies)})")
+        print(f"[3] Файл прокси:                       {cfg['proxy_file']}")
+        print(f"[4] Задержка между регистрациями:       {cfg['delay_min']}-{cfg['delay_max']} сек")
+        print("[0] Назад в главное меню")
+
+        opt = input("\nВыберите параметр для изменения [0-4]: ").strip()
+        if opt == "1":
+            val = input("Введите количество по умолчанию: ").strip()
+            if val.isdigit() and int(val) > 0:
+                cfg['count'] = int(val)
+                save_config(cfg)
+                print("Сохранено.")
+        elif opt == "2":
+            cfg['use_proxy'] = not cfg['use_proxy']
+            save_config(cfg)
+            print(f"Прокси {'включены' if cfg['use_proxy'] else 'отключены'}.")
+        elif opt == "3":
+            val = input(f"Имя файла прокси [{cfg['proxy_file']}]: ").strip()
+            if val:
+                cfg['proxy_file'] = val
+                save_config(cfg)
+                print("Сохранено.")
+        elif opt == "4":
+            min_v = input("Минимальная задержка (сек): ").strip()
+            max_v = input("Максимальная задержка (сек): ").strip()
+            if min_v.isdigit() and max_v.isdigit() and int(max_v) >= int(min_v):
+                cfg['delay_min'] = int(min_v)
+                cfg['delay_max'] = int(max_v)
+                save_config(cfg)
+                print("Сохранено.")
+        elif opt == "0":
+            break
 
 
-def menu_open_in_browser():
-    print("\n--- [3] 🌐 Открыть аккаунт в консоли Apodex ---")
+def menu_login():
+    print("\n--- [3] 🌐 Вход в аккаунт (консоль) ---")
     if not os.path.exists("accounts.json"):
-        print("Файл accounts.json не найден. Сначала зарегистрируйте аккаунт.")
+        print("База accounts.json пуста. Сначала зарегистрируйте аккаунт.")
         return
 
     try:
         with open("accounts.json", "r", encoding="utf-8") as f:
             accounts = json.load(f)
     except Exception:
-        print("Не удалось прочитать accounts.json.")
+        print("Ошибка чтения accounts.json.")
         return
 
     if not accounts:
-        print("Список аккаунтов пуст.")
+        print("Нет сохраненных аккаунтов.")
         return
 
-    print("Выберите аккаунт для входа:")
-    for idx, acc in enumerate(accounts[-10:], 1):
-        print(f"[{idx}] {acc.get('email')} (Баланс: ${acc.get('credits_usd', 0):.2f})")
+    print("Сохраненные аккаунты:")
+    recent = accounts[-10:]
+    for idx, acc in enumerate(recent, 1):
+        print(f"[{idx}] {acc.get('email')} (Баланс: ${acc.get('credits_usd', 0):.2f}, Ключ: {acc.get('api_key', '')[:12]}...)")
 
-    choice = input(f"Номер аккаунта (1-{min(len(accounts), 10)}) [последний]: ").strip()
-    idx = int(choice) - 1 if choice.isdigit() and 1 <= int(choice) <= min(len(accounts), 10) else -1
-    selected = accounts[-10:][idx]
+    choice = input(f"Выберите аккаунт (1-{len(recent)}) [последний]: ").strip()
+    idx = int(choice) - 1 if choice.isdigit() and 1 <= int(choice) <= len(recent) else -1
+    selected = recent[idx]
 
     token = selected.get("access_token")
     refresh_token = selected.get("refresh_token")
-
-    js_code = (
-        f"localStorage.setItem('apodex_pp_access_token', '{token}'); "
-        f"localStorage.setItem('apodex_pp_refresh_token', '{refresh_token}'); "
-        f"localStorage.setItem('apodex_pp_access_expires_at', '{int(time.time() + 3600)*1000}'); "
-        f"document.cookie = 'apodex_signed_in=1; path=/; max-age=2592000'; "
-        f"location.href = '/console/api-keys';"
-    )
-
-    print("\n" + "=" * 70)
-    print("ВХОД В КОНСОЛЬ В 1 КЛИК:")
-    print("1. Браузер открывается на https://platform.apodex.ai/login")
-    print("2. Нажмите F12 (Консоль) и вставьте следующую строчку, затем нажмите Enter:")
-    print("-" * 70)
-    print(js_code)
-    print("=" * 70)
-
-    webbrowser.open("https://platform.apodex.ai/login")
-
-
-def menu_check_inbox():
-    print("\n--- [4] 📬 Проверить почту аккаунта (получить свежий OTP код) ---")
-    if not os.path.exists("accounts.json"):
-        print("Файл accounts.json не найден.")
-        return
-
-    with open("accounts.json", "r", encoding="utf-8") as f:
-        accounts = json.load(f)
-
-    if not accounts:
-        print("Список аккаунтов пуст.")
-        return
-
-    print("Выберите аккаунт:")
-    for idx, acc in enumerate(accounts[-10:], 1):
-        print(f"[{idx}] {acc.get('email')}")
-
-    choice = input(f"Номер аккаунта (1-{min(len(accounts), 10)}) [последний]: ").strip()
-    idx = int(choice) - 1 if choice.isdigit() and 1 <= int(choice) <= min(len(accounts), 10) else -1
-    selected = accounts[-10:][idx]
-
     email = selected.get("email")
     pwd = selected.get("mail_password")
-    if not pwd:
-        print(f"Для {email} нет сохраненного пароля почты.")
-        return
 
-    print(f"\nОтправляем новый код на {email}...")
-    reg = ApodexAutoReg()
-    if reg.send_verification_code(email):
-        print("Код запрошен. Подключаемся к ящику и ждем письмо...")
-        mail = MailTmClient()
-        try:
-            mail.login_account(email, pwd)
-            code = mail.wait_for_otp(timeout_sec=40)
-            print("\n" + "=" * 50)
-            print(f"📩 ВАШ 6-ЗНАЧНЫЙ КОД ДЛЯ ВХОДА: {code}")
-            print("=" * 50)
-        except Exception as e:
-            print(f"Ошибка проверки почты: {e}")
+    print("\nСпособ входа:")
+    print("[1] Мгновенный вход в браузер (по сессионному токену)")
+    print("[2] Получить свежий 6-значный OTP код на почту")
+    method = input("Выберите вариант [1]: ").strip()
+
+    if method == "2" and pwd:
+        print(f"\nЗапрашиваем код на {email}...")
+        reg = ApodexAutoReg()
+        if reg.send_verification_code(email):
+            mail = MailTmClient()
+            try:
+                mail.login_account(email, pwd)
+                code = mail.wait_for_otp(timeout_sec=40)
+                print("\n" + "=" * 50)
+                print(f"📩 ВАШ 6-ЗНАЧНЫЙ OTP-КОД ДЛЯ ВХОДА: {code}")
+                print("=" * 50)
+                webbrowser.open("https://platform.apodex.ai/login")
+            except Exception as e:
+                print(f"Ошибка получения кода: {e}")
+        else:
+            print("Не удалось отправить код.")
     else:
-        print("Не удалось отправить код с платформы.")
+        js_code = (
+            f"localStorage.setItem('apodex_pp_access_token', '{token}'); "
+            f"localStorage.setItem('apodex_pp_refresh_token', '{refresh_token}'); "
+            f"localStorage.setItem('apodex_pp_access_expires_at', '{int(time.time() + 3600)*1000}'); "
+            f"document.cookie = 'apodex_signed_in=1; path=/; max-age=2592000'; "
+            f"location.href = '/console/api-keys';"
+        )
+        print("\n" + "=" * 70)
+        print("ВХОД В КОНСОЛЬ:")
+        print("1. Браузер открывается на https://platform.apodex.ai/login")
+        print("2. Нажмите F12 (вкладка Console), вставьте строку ниже и нажмите Enter:")
+        print("-" * 70)
+        print(js_code)
+        print("=" * 70)
+        webbrowser.open("https://platform.apodex.ai/login")
 
 
 def menu_clear_database():
-    print("\n--- [5] 🗑 Очистить базу аккаунтов ---")
-    confirm = input("Вы уверены, что хотите удалить keys.txt, accounts.txt и accounts.json? (yes/no): ").strip().lower()
+    print("\n--- [4] 🗑 Очистить базу аккаунтов ---")
+    confirm = input("Удалить keys.txt, accounts.txt и accounts.json? (yes/no): ").strip().lower()
     if confirm in ("yes", "y", "да"):
         for fname in ["keys.txt", "accounts.txt", "accounts.json"]:
             if os.path.exists(fname):
@@ -494,7 +517,7 @@ def menu_clear_database():
                 print(f"Удален: {fname}")
         print("База успешно очищена.")
     else:
-        print("Отмена очистки.")
+        print("Отмена.")
 
 
 def main_menu():
@@ -504,26 +527,23 @@ def main_menu():
   Base URL: https://api.apodex.ai/v1/
 ============================================================
 💻 ПУНКТЫ МЕНЮ:
-[1] 🚀 Запустить авторегер (настроить параметры и старт)
-[2] 🧪 Быстрый тест (создать 1 аккаунт с логами)
-[3] 🌐 Открыть аккаунт в браузере (в 1 клик)
-[4] 📬 Проверить почту аккаунта (получить свежий OTP код)
-[5] 🗑 Очистить базу аккаунтов (accounts.txt / keys.txt / accounts.json)
+[1] 🚀 Запустить авторегер
+[2] ⚙️ Настройки
+[3] 🌐 Вход в аккаунт (консоль)
+[4] 🗑 Очистить базу аккаунтов
 [0] ❌ Выход
 ============================================================
 """
     while True:
         print(banner)
-        choice = input("Выберите пункт меню [0-5]: ").strip()
+        choice = input("Выберите пункт меню [0-4]: ").strip()
         if choice == "1":
             menu_autoreg()
         elif choice == "2":
-            menu_quick_test()
+            menu_settings()
         elif choice == "3":
-            menu_open_in_browser()
+            menu_login()
         elif choice == "4":
-            menu_check_inbox()
-        elif choice == "5":
             menu_clear_database()
         elif choice == "0":
             print("\nВыход из программы. До скорых встреч!")
