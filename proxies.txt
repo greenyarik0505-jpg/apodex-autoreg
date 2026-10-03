@@ -1,0 +1,8 @@
+# Вставьте прокси сюда (по одной строке на прокси)
+# Поддерживаемые форматы:
+# ip:port
+# ip:port:user:pass
+# user:pass@ip:port
+# http://user:pass@ip:port
+# socks5://user:pass@ip:port
+# socks5h://user:pass@ip:port

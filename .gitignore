@@ -1,0 +1,19 @@
+# Environment & runtime
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Sensitive data / Generated accounts & keys
+keys.txt
+accounts.txt
+accounts.json
+*.log
+
+# Debug & scratch
+_debug/
+scratch/
+.idea/
+.vscode/
