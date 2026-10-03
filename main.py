@@ -24,6 +24,13 @@ import webbrowser
 from typing import Optional, Dict, Any, List
 import requests
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
